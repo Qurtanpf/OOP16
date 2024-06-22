@@ -1,0 +1,248 @@
+using System;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+using System.Threading;
+using System.Windows.Forms;
+using System.IO;
+
+namespace UDPChat
+{
+    static class Program
+    {
+        // Головна точка входу для додатка.
+        [STAThread]
+        static void Main()
+        {
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            Application.Run(new ChatForm());
+        }
+    }
+
+    public class ChatForm : Form
+    {
+        private TextBox chatTextBox;
+        private TextBox messageTextBox;
+        private Button sendButton;
+        private Button settingsButton;
+        private UdpClient udpClient;
+        private IPEndPoint remoteEndPoint;
+        private Thread receiveThread;
+        private string logFilePath = "chat_log.txt";
+        private int localPort;
+        private string remoteIp;
+        private int remotePort;
+
+        public ChatForm()
+        {
+            InitializeComponent();
+        }
+
+        private void InitializeComponent()
+        {
+            this.chatTextBox = new TextBox();
+            this.messageTextBox = new TextBox();
+            this.sendButton = new Button();
+            this.settingsButton = new Button();
+
+            this.chatTextBox.Multiline = true;
+            this.chatTextBox.ScrollBars = ScrollBars.Vertical;
+            this.chatTextBox.Location = new System.Drawing.Point(12, 12);
+            this.chatTextBox.Size = new System.Drawing.Size(360, 200);
+
+            this.messageTextBox.Location = new System.Drawing.Point(12, 220);
+            this.messageTextBox.Size = new System.Drawing.Size(360, 20);
+
+            this.sendButton.Text = "Send";
+            this.sendButton.Location = new System.Drawing.Point(297, 250);
+            this.sendButton.Click += new EventHandler(SendButton_Click);
+
+            this.settingsButton.Text = "Settings";
+            this.settingsButton.Location = new System.Drawing.Point(12, 250);
+            this.settingsButton.Click += new EventHandler(SettingsButton_Click);
+
+            this.ClientSize = new System.Drawing.Size(384, 281);
+            this.Controls.Add(this.chatTextBox);
+            this.Controls.Add(this.messageTextBox);
+            this.Controls.Add(this.sendButton);
+            this.Controls.Add(this.settingsButton);
+            this.Text = "UDP Chat";
+        }
+
+        private void StartReceiving()
+        {
+            if (receiveThread == null)
+            {
+                receiveThread = new Thread(ReceiveMessages);
+                receiveThread.IsBackground = true;
+                receiveThread.Start();
+            }
+        }
+
+        private void SendButton_Click(object sender, EventArgs e)
+        {
+            string message = messageTextBox.Text;
+            if (!string.IsNullOrEmpty(message))
+            {
+                SendMessage(message);
+                messageTextBox.Clear();
+            }
+        }
+
+        private void SettingsButton_Click(object sender, EventArgs e)
+        {
+            SettingsForm settingsForm = new SettingsForm(this);
+            settingsForm.ShowDialog();
+        }
+
+        public void SetConnectionSettings(int localPort, string remoteIp, int remotePort)
+        {
+            this.localPort = localPort;
+            this.remoteIp = remoteIp;
+            this.remotePort = remotePort;
+
+            if (udpClient != null)
+            {
+                udpClient.Close();
+            }
+
+            udpClient = new UdpClient(localPort);
+            remoteEndPoint = new IPEndPoint(IPAddress.Parse(remoteIp), remotePort);
+
+            StartReceiving();  // Запускаємо прийом повідомлень після налаштування параметрів
+        }
+
+        private void SendMessage(string message)
+        {
+            if (udpClient != null && remoteEndPoint != null)
+            {
+                byte[] data = Encoding.UTF8.GetBytes(message);
+                udpClient.Send(data, data.Length, remoteEndPoint);
+                LogMessage("You: " + message);
+                AppendMessage("You: " + message);
+            }
+        }
+
+        private void ReceiveMessages()
+        {
+            while (true)
+            {
+                if (udpClient != null)
+                {
+                    try
+                    {
+                        byte[] data = udpClient.Receive(ref remoteEndPoint);
+                        string message = Encoding.UTF8.GetString(data);
+                        AppendMessage("Friend: " + message);
+                        LogMessage("Friend: " + message);
+                    }
+                    catch (Exception ex)
+                    {
+                        AppendMessage("Error receiving message: " + ex.Message);
+                    }
+                }
+                Thread.Sleep(100); // Щоб уникнути надмірного використання CPU
+            }
+        }
+
+        private void AppendMessage(string message)
+        {
+            if (chatTextBox.InvokeRequired)
+            {
+                chatTextBox.Invoke(new Action<string>(AppendMessage), message);
+            }
+            else
+            {
+                chatTextBox.AppendText(message + Environment.NewLine);
+            }
+        }
+
+        private void LogMessage(string message)
+        {
+            using (StreamWriter writer = new StreamWriter(logFilePath, true))
+            {
+                writer.WriteLine($"{DateTime.Now}: {message}");
+            }
+        }
+    }
+
+    public class SettingsForm : Form
+    {
+        private TextBox localPortTextBox;
+        private TextBox remoteIpTextBox;
+        private TextBox remotePortTextBox;
+        private Button saveButton;
+        private ChatForm chatForm;
+        private Label localPortLabel;
+        private Label remoteIpLabel;
+        private Label remotePortLabel;
+
+        public SettingsForm(ChatForm chatForm)
+        {
+            this.chatForm = chatForm;
+            InitializeComponent();
+        }
+
+        private void InitializeComponent()
+        {
+            this.localPortTextBox = new TextBox();
+            this.remoteIpTextBox = new TextBox();
+            this.remotePortTextBox = new TextBox();
+            this.saveButton = new Button();
+            this.localPortLabel = new Label();
+            this.remoteIpLabel = new Label();
+            this.remotePortLabel = new Label();
+
+            this.localPortLabel.Text = "Local Port";
+            this.localPortLabel.Location = new System.Drawing.Point(12, 9);
+            this.localPortLabel.Size = new System.Drawing.Size(100, 23);
+
+            this.localPortTextBox.Location = new System.Drawing.Point(12, 35);
+            this.localPortTextBox.Size = new System.Drawing.Size(100, 20);
+
+            this.remoteIpLabel.Text = "Remote IP";
+            this.remoteIpLabel.Location = new System.Drawing.Point(12, 58);
+            this.remoteIpLabel.Size = new System.Drawing.Size(100, 23);
+
+            this.remoteIpTextBox.Location = new System.Drawing.Point(12, 84);
+            this.remoteIpTextBox.Size = new System.Drawing.Size(100, 20);
+
+            this.remotePortLabel.Text = "Remote Port";
+            this.remotePortLabel.Location = new System.Drawing.Point(12, 107);
+            this.remotePortLabel.Size = new System.Drawing.Size(100, 23);
+
+            this.remotePortTextBox.Location = new System.Drawing.Point(12, 133);
+            this.remotePortTextBox.Size = new System.Drawing.Size(100, 20);
+
+            this.saveButton.Text = "Save";
+            this.saveButton.Location = new System.Drawing.Point(12, 159);
+            this.saveButton.Click += new EventHandler(SaveButton_Click);
+
+            this.ClientSize = new System.Drawing.Size(128, 190);
+            this.Controls.Add(this.localPortLabel);
+            this.Controls.Add(this.localPortTextBox);
+            this.Controls.Add(this.remoteIpLabel);
+            this.Controls.Add(this.remoteIpTextBox);
+            this.Controls.Add(this.remotePortLabel);
+            this.Controls.Add(this.remotePortTextBox);
+            this.Controls.Add(this.saveButton);
+            this.Text = "Settings";
+        }
+
+        private void SaveButton_Click(object sender, EventArgs e)
+        {
+            if (int.TryParse(localPortTextBox.Text, out int localPort) &&
+                IPAddress.TryParse(remoteIpTextBox.Text, out IPAddress remoteIp) &&
+                int.TryParse(remotePortTextBox.Text, out int remotePort))
+            {
+                chatForm.SetConnectionSettings(localPort, remoteIpTextBox.Text, remotePort);
+                this.Close();
+            }
+            else
+            {
+                MessageBox.Show("Please enter valid connection settings.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+    }
+}
